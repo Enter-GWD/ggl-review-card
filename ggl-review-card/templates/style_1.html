@@ -1,0 +1,120 @@
+<!--
+  Template: Classic
+
+  Drop new templates into this folder as `style_2.html`, `style_3.html`,
+  etc. They are auto-discovered by ggl_review_card_get_templates().
+
+  Files are parsed as XML, so the markup must be well-formed:
+    every element either self-closes (<rect />) or has a matching tag,
+    all attribute values must be quoted,
+    boolean attributes need an explicit value ("true" / "false").
+
+  ===================================================================
+  <template> attributes
+  ===================================================================
+    id              required, unique slug
+    name            required, shown in the picker
+    background      canvas background colour
+    accent          accent colour for the picker swatch
+    text-color      text colour for the picker swatch
+    canvas-width    optional, override default A5 width (1240 px)
+    canvas-height   optional, override default A5 height (1754 px)
+
+  ===================================================================
+  Element types
+  ===================================================================
+    <rect />              filled rectangle
+                          x, y, w, h, fill
+
+    <text>...</text>      static text (the text content goes inside)
+                          x, y, font, fill, align, baseline,
+                          max-width, max-lines, line-height
+
+    <stars />             rating stars (5 by default)
+                          x, y, count, font, fill, align, baseline
+
+    <business />          dynamic, business name from the form
+                          (same keys as text)
+
+    <banner-text />       dynamic, banner text from the form
+                          (same keys as text)
+
+    <qr />                QR code from the review URL
+                          x, y, size,
+                          anchor (top-left, top-center, center-left, center),
+                          plate (colour or "false"),
+                          frame ("true" / "false"),
+                          frame-color, frame-padding, frame-width
+
+  ===================================================================
+  Coordinates
+  ===================================================================
+  x, y, w, h accept three forms:
+    integer pixels                90, 480
+    percentages of the canvas     "50%", "100%"
+    negative integers (measured from the right/bottom edge)
+-->
+<template id="style_1" name="Classic"
+          background="#ffffff"
+          accent="#4285F4"
+          text-color="#202124">
+
+    <!-- Top accent bar -->
+    <rect x="0" y="0" w="100%" h="24" fill="#4285F4" />
+
+    <!-- Bottom accent bar (negative y = from bottom edge) -->
+    <rect x="0" y="-24" w="100%" h="24" fill="#4285F4" />
+
+    <!-- Stars -->
+    <stars x="50%" y="90"
+           count="5"
+           font="bold 110px Arial, sans-serif"
+           fill="#facc15"
+           align="center"
+           baseline="top" />
+
+    <!-- "Google Reviews" label -->
+    <text x="50%" y="230"
+          font="600 44px Arial, sans-serif"
+          fill="#5f6368"
+          align="center"
+          baseline="top">Google Reviews</text>
+
+    <!-- Business name (dynamic, pulled from the form) -->
+    <business x="50%" y="310"
+              font="bold 78px Arial, sans-serif"
+              fill="#202124"
+              align="center"
+              baseline="top"
+              max-width="1080"
+              max-lines="2"
+              line-height="88" />
+
+    <!-- Banner text (dynamic, pulled from the form) -->
+    <banner-text x="50%" y="510"
+                 font="500 48px Arial, sans-serif"
+                 fill="#202124"
+                 align="center"
+                 baseline="top"
+                 max-width="1040"
+                 max-lines="4"
+                 line-height="64" />
+
+    <!-- QR code -->
+    <qr x="50%" y="880"
+        anchor="top-center"
+        size="640"
+        plate="#ffffff"
+        frame="true"
+        frame-color="#4285F4"
+        frame-padding="30"
+        frame-width="8" />
+
+    <!-- Call to action below QR -->
+    <text x="50%" y="-150"
+          font="bold 50px Arial, sans-serif"
+          fill="#202124"
+          align="center"
+          baseline="top">Scan to leave a review</text>
+
+</template>

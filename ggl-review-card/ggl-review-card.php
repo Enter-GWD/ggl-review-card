@@ -59,12 +59,12 @@ function ggl_review_card_register_assets() {
 add_action( 'init', 'ggl_review_card_register_assets' );
 
 /**
- * Discover templates by scanning `templates/style_*.php`.
+ * Discover templates by scanning `templates/style_*.html`.
  *
- * Each template file must `return` an associative array describing the
- * layout. To add a new layout, copy `templates/style_1.php` to
- * `templates/style_2.php` (or any other `style_*.php` filename) and edit
- * the values - no further wiring required.
+ * Each template file is HTML-like markup parsed into the element list the
+ * canvas renderer understands. To add a new layout, copy
+ * `templates/style_1.html` to `templates/style_2.html` (or any other
+ * `style_*.html` filename) - no PHP wiring required.
  *
  * Filter `ggl_review_card_templates` to add/remove templates programmatically.
  */
@@ -75,13 +75,13 @@ function ggl_review_card_get_templates() {
     }
 
     $templates = array();
-    $files     = glob( GGL_REVIEW_CARD_PATH . 'templates/style_*.php' );
+    $files     = glob( GGL_REVIEW_CARD_PATH . 'templates/style_*.html' );
 
     if ( $files ) {
         sort( $files );
         foreach ( $files as $file ) {
-            $tpl = include $file;
-            if ( is_array( $tpl ) && ! empty( $tpl['id'] ) && ! empty( $tpl['name'] ) ) {
+            $tpl = ggl_review_card_load_template_file( $file );
+            if ( $tpl ) {
                 $tpl['_file'] = basename( $file );
                 $templates[]  = $tpl;
             }
@@ -96,6 +96,158 @@ function ggl_review_card_get_templates() {
     $cached = apply_filters( 'ggl_review_card_templates', $templates );
 
     return $cached;
+}
+
+/**
+ * Parse one HTML-like template file into the element array consumed by the
+ * canvas renderer in assets/js/ggl-review-card.js.
+ *
+ * Returns null if the file is missing, malformed, or has no `id`/`name`.
+ */
+function ggl_review_card_load_template_file( $file ) {
+    $content = file_get_contents( $file );
+    if ( false === $content || '' === trim( $content ) ) {
+        return null;
+    }
+
+    // DOMDocument::loadXML defaults to ISO-8859-1 without an XML prolog,
+    // so prepend one if the author didn't include it.
+    if ( false === strpos( $content, '<?xml' ) ) {
+        $content = '<?xml version="1.0" encoding="UTF-8"?>' . "\n" . $content;
+    }
+
+    $previous = libxml_use_internal_errors( true );
+    $doc      = new DOMDocument();
+    $loaded   = $doc->loadXML( $content );
+    libxml_clear_errors();
+    libxml_use_internal_errors( $previous );
+
+    if ( ! $loaded || ! $doc->documentElement || 'template' !== $doc->documentElement->nodeName ) {
+        return null;
+    }
+
+    $root = $doc->documentElement;
+
+    $template = array(
+        'id'         => $root->getAttribute( 'id' ),
+        'name'       => $root->getAttribute( 'name' ),
+        'background' => $root->getAttribute( 'background' ) ?: '#ffffff',
+        'accent'     => $root->getAttribute( 'accent' ) ?: '#4285F4',
+        'textColor'  => $root->getAttribute( 'text-color' ) ?: '#202124',
+        'elements'   => array(),
+    );
+
+    if ( empty( $template['id'] ) || empty( $template['name'] ) ) {
+        return null;
+    }
+
+    $cw = $root->getAttribute( 'canvas-width' );
+    $ch = $root->getAttribute( 'canvas-height' );
+    if ( $cw || $ch ) {
+        $template['canvas'] = array();
+        if ( $cw ) {
+            $template['canvas']['w'] = (int) $cw;
+        }
+        if ( $ch ) {
+            $template['canvas']['h'] = (int) $ch;
+        }
+    }
+
+    foreach ( $root->childNodes as $child ) {
+        if ( XML_ELEMENT_NODE !== $child->nodeType ) {
+            continue;
+        }
+        $element = ggl_review_card_parse_element_node( $child );
+        if ( $element ) {
+            $template['elements'][] = $element;
+        }
+    }
+
+    return $template;
+}
+
+/**
+ * Convert one DOMElement (e.g. <rect> or <text>...</text>) into the
+ * associative element used by the JS renderer.
+ */
+function ggl_review_card_parse_element_node( DOMNode $node ) {
+    $type_map = array(
+        'rect'        => 'rect',
+        'text'        => 'text',
+        'stars'       => 'stars',
+        'business'    => 'business',
+        'banner-text' => 'bannerText',
+        'qr'          => 'qr',
+    );
+
+    $tag = $node->nodeName;
+    if ( ! isset( $type_map[ $tag ] ) ) {
+        return null;
+    }
+
+    $element = array( 'type' => $type_map[ $tag ] );
+
+    if ( $node->hasAttributes() ) {
+        foreach ( $node->attributes as $attr ) {
+            $key             = ggl_review_card_camel_case( $attr->nodeName );
+            $element[ $key ] = ggl_review_card_coerce_attr_value( $attr->nodeValue );
+        }
+    }
+
+    // Allow inline body text on text-bearing elements (e.g. <text>Hello</text>).
+    if ( in_array( $tag, array( 'text', 'business', 'banner-text' ), true ) ) {
+        $body = trim( $node->textContent );
+        if ( '' !== $body ) {
+            $element['content'] = $body;
+        }
+    }
+
+    return $element;
+}
+
+/**
+ * Convert kebab-case attribute names (e.g. `max-width`) to the camelCase
+ * keys the JS renderer expects (`maxWidth`).
+ */
+function ggl_review_card_camel_case( $input ) {
+    return preg_replace_callback(
+        '/-([a-z])/',
+        function ( $m ) {
+            return strtoupper( $m[1] );
+        },
+        $input
+    );
+}
+
+/**
+ * Coerce raw XML attribute strings to PHP scalars the renderer can use:
+ *  - "true"/"false" -> bool
+ *  - "" -> true (for boolean toggles)
+ *  - "50%" -> string (kept as-is for the JS coordinate resolver)
+ *  - "-150" / "640" -> int
+ *  - "1.5" -> float
+ *  - everything else -> string
+ */
+function ggl_review_card_coerce_attr_value( $value ) {
+    if ( '' === $value ) {
+        return true;
+    }
+    if ( 'true' === $value ) {
+        return true;
+    }
+    if ( 'false' === $value ) {
+        return false;
+    }
+    if ( '%' === substr( $value, -1 ) ) {
+        return $value;
+    }
+    if ( preg_match( '/^-?\d+$/', $value ) ) {
+        return (int) $value;
+    }
+    if ( preg_match( '/^-?\d+\.\d+$/', $value ) ) {
+        return (float) $value;
+    }
+    return $value;
 }
 
 /**
@@ -148,7 +300,7 @@ function ggl_review_card_shortcode( $atts ) {
             <fieldset class="ggl-rc__step" data-step="3">
                 <legend><?php esc_html_e( 'Choose a template', 'ggl-review-card' ); ?></legend>
                 <?php if ( empty( $templates ) ) : ?>
-                    <p class="ggl-rc__error"><?php esc_html_e( 'No templates found in templates/. Add a style_*.php file.', 'ggl-review-card' ); ?></p>
+                    <p class="ggl-rc__error"><?php esc_html_e( 'No templates found in templates/. Add a style_*.html file.', 'ggl-review-card' ); ?></p>
                 <?php else : ?>
                     <div class="ggl-rc__templates" role="radiogroup">
                         <?php foreach ( $templates as $index => $template ) : ?>

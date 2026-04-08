@@ -146,7 +146,11 @@
     function drawQrElement (ctx, x, y, el, data) {
         var size = el.size || 640;
         var pad  = el.framePadding || 0;
-        var anchor = el.anchor || 'topLeft';
+        // Accept either camelCase ("topCenter") or kebab-case ("top-center")
+        // anchors so HTML templates can use the more natural form.
+        var anchor = (el.anchor || 'topLeft').replace(/-([a-z])/g, function (m, c) {
+            return c.toUpperCase();
+        });
 
         var qrX = x;
         var qrY = y;
