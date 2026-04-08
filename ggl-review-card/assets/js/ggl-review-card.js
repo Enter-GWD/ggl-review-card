@@ -145,6 +145,22 @@
         }));
     }
 
+    function measureWrapWidth (wrap) {
+        if (!wrap) { return 0; }
+        // getBoundingClientRect forces layout and returns sub-pixel
+        // precision, so it's much more reliable than clientWidth when
+        // the panel has just become visible.
+        var rect = wrap.getBoundingClientRect();
+        var w = rect.width;
+        if (w && w > 10) { return w; }
+
+        // Fallback to computed style if rect is unavailable for any
+        // reason (e.g. wrap is still transitioning).
+        var computed = window.getComputedStyle(wrap);
+        w = parseFloat(computed.width);
+        return (w && w > 10) ? w : 0;
+    }
+
     function resizePreviewIframe (state, tpl) {
         var iframe = state.iframe;
         var wrap   = state.iframeWrap;
@@ -153,12 +169,14 @@
         iframe.style.width  = tpl.width  + 'px';
         iframe.style.height = tpl.height + 'px';
 
-        var available = wrap.clientWidth || 320;
+        var available = measureWrapWidth(wrap) || 320;
         var scale = available / tpl.width;
         if (scale > 1) { scale = 1; }
 
         iframe.style.transform = 'scale(' + scale + ')';
-        wrap.style.height = (tpl.height * scale) + 'px';
+        // Size the wrap to match the scaled iframe exactly so there is
+        // no grey gutter next to or below the preview.
+        wrap.style.height = Math.ceil(tpl.height * scale) + 'px';
 
         state.currentScale = scale;
     }
@@ -257,7 +275,13 @@
         root.dataset.hasPreview = showPreview ? 'true' : 'false';
 
         if (showPreview) {
-            schedulePreview(state);
+            // Defer to next frame so the 2-column grid layout has
+            // actually been applied before we measure the wrap width,
+            // otherwise the first render scales against the old
+            // (single-column) width and looks wrong.
+            requestAnimationFrame(function () {
+                updatePreview(state);
+            });
         }
 
         state.step = step;
@@ -348,12 +372,21 @@
             }
         });
 
-        window.addEventListener('resize', debounce(function () {
+        function refitPreview () {
             var tpl = findTemplate(collectData(root).template);
             if (tpl && state.iframe && !$(root, '[data-live-preview]').hidden) {
                 resizePreviewIframe(state, tpl);
             }
-        }, 150));
+        }
+
+        window.addEventListener('resize', debounce(refitPreview, 100));
+
+        // Keep the preview scaled correctly as the panel width changes
+        // (column layout, sidebars, devtools, etc).
+        if (typeof window.ResizeObserver === 'function' && state.iframeWrap) {
+            var ro = new window.ResizeObserver(debounce(refitPreview, 50));
+            ro.observe(state.iframeWrap);
+        }
     }
 
     document.addEventListener('DOMContentLoaded', function () {
