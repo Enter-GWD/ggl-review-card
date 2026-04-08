@@ -59,44 +59,43 @@ function ggl_review_card_register_assets() {
 add_action( 'init', 'ggl_review_card_register_assets' );
 
 /**
- * Templates available in step 3. Each template defines colours used by the
- * canvas renderer in assets/js/ggl-review-card.js.
+ * Discover templates by scanning `templates/style_*.php`.
+ *
+ * Each template file must `return` an associative array describing the
+ * layout. To add a new layout, copy `templates/style_1.php` to
+ * `templates/style_2.php` (or any other `style_*.php` filename) and edit
+ * the values - no further wiring required.
+ *
+ * Filter `ggl_review_card_templates` to add/remove templates programmatically.
  */
 function ggl_review_card_get_templates() {
-    return array(
-        array(
-            'id'         => 'classic',
-            'name'       => __( 'Classic', 'ggl-review-card' ),
-            'background' => '#ffffff',
-            'accent'     => '#4285F4',
-            'textColor'  => '#202124',
-            'subColor'   => '#5f6368',
-        ),
-        array(
-            'id'         => 'midnight',
-            'name'       => __( 'Midnight', 'ggl-review-card' ),
-            'background' => '#0f172a',
-            'accent'     => '#facc15',
-            'textColor'  => '#ffffff',
-            'subColor'   => '#cbd5f5',
-        ),
-        array(
-            'id'         => 'sunrise',
-            'name'       => __( 'Sunrise', 'ggl-review-card' ),
-            'background' => '#fff7ed',
-            'accent'     => '#ea580c',
-            'textColor'  => '#7c2d12',
-            'subColor'   => '#9a3412',
-        ),
-        array(
-            'id'         => 'forest',
-            'name'       => __( 'Forest', 'ggl-review-card' ),
-            'background' => '#ecfdf5',
-            'accent'     => '#047857',
-            'textColor'  => '#064e3b',
-            'subColor'   => '#065f46',
-        ),
-    );
+    static $cached = null;
+    if ( null !== $cached ) {
+        return $cached;
+    }
+
+    $templates = array();
+    $files     = glob( GGL_REVIEW_CARD_PATH . 'templates/style_*.php' );
+
+    if ( $files ) {
+        sort( $files );
+        foreach ( $files as $file ) {
+            $tpl = include $file;
+            if ( is_array( $tpl ) && ! empty( $tpl['id'] ) && ! empty( $tpl['name'] ) ) {
+                $tpl['_file'] = basename( $file );
+                $templates[]  = $tpl;
+            }
+        }
+    }
+
+    /**
+     * Filter the list of templates returned to the front-end.
+     *
+     * @param array $templates List of template config arrays.
+     */
+    $cached = apply_filters( 'ggl_review_card_templates', $templates );
+
+    return $cached;
 }
 
 /**
@@ -148,26 +147,27 @@ function ggl_review_card_shortcode( $atts ) {
 
             <fieldset class="ggl-rc__step" data-step="3">
                 <legend><?php esc_html_e( 'Choose a template', 'ggl-review-card' ); ?></legend>
-                <div class="ggl-rc__templates" role="radiogroup">
-                    <?php foreach ( $templates as $index => $template ) : ?>
-                        <label class="ggl-rc__template" style="--ggl-bg: <?php echo esc_attr( $template['background'] ); ?>; --ggl-accent: <?php echo esc_attr( $template['accent'] ); ?>; --ggl-text: <?php echo esc_attr( $template['textColor'] ); ?>;">
-                            <input type="radio" name="template" value="<?php echo esc_attr( $template['id'] ); ?>" <?php checked( 0, $index ); ?>>
-                            <span class="ggl-rc__template-preview">
-                                <span class="ggl-rc__template-stars">&#9733;&#9733;&#9733;&#9733;&#9733;</span>
-                                <span class="ggl-rc__template-name"><?php echo esc_html( $template['name'] ); ?></span>
-                            </span>
-                        </label>
-                    <?php endforeach; ?>
-                </div>
+                <?php if ( empty( $templates ) ) : ?>
+                    <p class="ggl-rc__error"><?php esc_html_e( 'No templates found in templates/. Add a style_*.php file.', 'ggl-review-card' ); ?></p>
+                <?php else : ?>
+                    <div class="ggl-rc__templates" role="radiogroup">
+                        <?php foreach ( $templates as $index => $template ) : ?>
+                            <label class="ggl-rc__template" style="--ggl-bg: <?php echo esc_attr( $template['background'] ); ?>; --ggl-accent: <?php echo esc_attr( $template['accent'] ); ?>; --ggl-text: <?php echo esc_attr( $template['textColor'] ); ?>;">
+                                <input type="radio" name="template" value="<?php echo esc_attr( $template['id'] ); ?>" <?php checked( 0, $index ); ?>>
+                                <span class="ggl-rc__template-preview">
+                                    <span class="ggl-rc__template-stars">&#9733;&#9733;&#9733;&#9733;&#9733;</span>
+                                    <span class="ggl-rc__template-name"><?php echo esc_html( $template['name'] ); ?></span>
+                                </span>
+                            </label>
+                        <?php endforeach; ?>
+                    </div>
+                <?php endif; ?>
             </fieldset>
 
             <fieldset class="ggl-rc__step" data-step="4">
                 <legend><?php esc_html_e( 'Your A5 banner', 'ggl-review-card' ); ?></legend>
-                <p class="ggl-rc__hint"><?php esc_html_e( 'Click "Generate banner" to render your A5 image, then download it.', 'ggl-review-card' ); ?></p>
-                <div class="ggl-rc__preview">
-                    <canvas data-ggl-canvas width="1240" height="1754" aria-label="<?php esc_attr_e( 'A5 review banner preview', 'ggl-review-card' ); ?>"></canvas>
-                </div>
-                <a class="ggl-rc__download" href="#" download="google-review-banner-a5.png" hidden>
+                <p class="ggl-rc__hint"><?php esc_html_e( 'The preview on the right updates live as you edit. Use the button below to download the high-resolution PNG.', 'ggl-review-card' ); ?></p>
+                <a class="ggl-rc__download ggl-rc__btn ggl-rc__btn--primary" href="#" download="google-review-banner-a5.png" hidden>
                     <?php esc_html_e( 'Download A5 image', 'ggl-review-card' ); ?>
                 </a>
             </fieldset>
@@ -179,11 +179,16 @@ function ggl_review_card_shortcode( $atts ) {
                 <button type="button" class="ggl-rc__btn" data-action="next">
                     <?php esc_html_e( 'Next', 'ggl-review-card' ); ?>
                 </button>
-                <button type="button" class="ggl-rc__btn ggl-rc__btn--primary" data-action="generate" hidden>
-                    <?php esc_html_e( 'Generate banner', 'ggl-review-card' ); ?>
-                </button>
             </div>
         </form>
+
+        <aside class="ggl-rc__live-preview" data-live-preview hidden aria-live="polite">
+            <h3 class="ggl-rc__live-preview-title"><?php esc_html_e( 'Live preview', 'ggl-review-card' ); ?></h3>
+            <div class="ggl-rc__preview">
+                <canvas data-ggl-canvas width="1240" height="1754" aria-label="<?php esc_attr_e( 'A5 review banner preview', 'ggl-review-card' ); ?>"></canvas>
+            </div>
+            <p class="ggl-rc__preview-status" data-preview-status></p>
+        </aside>
     </div>
     <?php
     return ob_get_clean();

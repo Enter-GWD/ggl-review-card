@@ -1,5 +1,5 @@
 .ggl-rc {
-    max-width: 720px;
+    max-width: 1080px;
     margin: 0 auto;
     padding: 24px;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -8,6 +8,66 @@
     border-radius: 12px;
     box-shadow: 0 12px 40px rgba(15, 23, 42, 0.08);
     box-sizing: border-box;
+    display: grid;
+    grid-template-columns: 1fr;
+    grid-template-areas:
+        "steps"
+        "form"
+        "preview";
+    gap: 24px;
+}
+
+.ggl-rc[data-has-preview="true"] {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 360px);
+    grid-template-areas:
+        "steps   steps"
+        "form    preview";
+}
+
+.ggl-rc__steps {
+    grid-area: steps;
+}
+
+.ggl-rc__form {
+    grid-area: form;
+    min-width: 0;
+}
+
+.ggl-rc__live-preview {
+    grid-area: preview;
+    background: #f8fafc;
+    border-radius: 10px;
+    padding: 16px;
+    border: 1px solid #e2e8f0;
+}
+
+.ggl-rc__live-preview[hidden] {
+    display: none;
+}
+
+.ggl-rc__live-preview-title {
+    margin: 0 0 10px;
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #475569;
+}
+
+.ggl-rc__preview-status {
+    margin: 8px 0 0;
+    font-size: 12px;
+    color: #64748b;
+    min-height: 16px;
+}
+
+@media (max-width: 860px) {
+    .ggl-rc[data-has-preview="true"] {
+        grid-template-columns: 1fr;
+        grid-template-areas:
+            "steps"
+            "form"
+            "preview";
+    }
 }
 
 .ggl-rc *,
@@ -21,7 +81,7 @@
     justify-content: space-between;
     list-style: none;
     padding: 0;
-    margin: 0 0 24px;
+    margin: 0;
     counter-reset: ggl-step;
     gap: 8px;
 }
