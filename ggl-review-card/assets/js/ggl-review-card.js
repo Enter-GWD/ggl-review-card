@@ -98,88 +98,177 @@
     }
 
     /**
-     * Layouts. Add new layout ids by extending this object - templates pick
-     * one via the `layout` key in their style_*.php file.
+     * Coordinate resolvers. Templates can specify coordinates as:
+     *  - integer pixels
+     *  - percentage strings ('50%')
+     *  - negative pixels (measured from the right/bottom edge)
      */
-    var layouts = {
-        centered: function (ctx, W, H, data, template) {
-            // Background
-            ctx.fillStyle = template.background || '#ffffff';
-            ctx.fillRect(0, 0, W, H);
-
-            // Optional accent bars
-            if (template.bars !== false) {
-                ctx.fillStyle = template.accent || '#4285F4';
-                ctx.fillRect(0, 0, W, 24);
-                ctx.fillRect(0, H - 24, W, 24);
-            }
-
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'top';
-
-            // Stars
-            ctx.fillStyle = template.accent || '#facc15';
-            ctx.font = 'bold 110px Arial, sans-serif';
-            ctx.fillText('\u2605\u2605\u2605\u2605\u2605', W / 2, 90);
-
-            // Label
-            ctx.fillStyle = template.subColor || '#5f6368';
-            ctx.font = template.labelFont || '600 44px Arial, sans-serif';
-            ctx.fillText('Google Reviews', W / 2, 230);
-
-            // Business name
-            ctx.fillStyle = template.textColor || '#202124';
-            ctx.font = template.titleFont || 'bold 78px Arial, sans-serif';
-            var businessLines = wrapText(ctx, data.business || '\u00a0', W - 160);
-            var businessY = 310;
-            businessLines.slice(0, 2).forEach(function (line, i) {
-                ctx.fillText(line, W / 2, businessY + i * 88);
-            });
-
-            // Banner text
-            ctx.fillStyle = template.textColor || '#202124';
-            ctx.font = template.bodyFont || '500 48px Arial, sans-serif';
-            var textY = businessY + Math.min(businessLines.length, 2) * 88 + 40;
-            var textLines = wrapText(ctx, data.bannerText || '', W - 200);
-            textLines.slice(0, 4).forEach(function (line, i) {
-                ctx.fillText(line, W / 2, textY + i * 64);
-            });
-
-            // QR plate
-            var qrSize = template.qrSize || 640;
-            var qrX = (W - qrSize) / 2;
-            var qrY = H - qrSize - 220;
-            var pad = 30;
-            ctx.fillStyle = '#ffffff';
-            ctx.fillRect(qrX - pad, qrY - pad, qrSize + pad * 2, qrSize + pad * 2);
-
-            if (template.qrFrame !== false) {
-                ctx.strokeStyle = template.accent || '#4285F4';
-                ctx.lineWidth = 8;
-                ctx.strokeRect(qrX - pad, qrY - pad, qrSize + pad * 2, qrSize + pad * 2);
-            }
-
-            if (data.qrImage) {
-                ctx.drawImage(data.qrImage, qrX, qrY, qrSize, qrSize);
-            } else {
-                ctx.fillStyle = '#e2e8f0';
-                ctx.fillRect(qrX, qrY, qrSize, qrSize);
-                ctx.fillStyle = '#94a3b8';
-                ctx.font = '500 32px Arial, sans-serif';
-                ctx.fillText('QR loading...', W / 2, qrY + qrSize / 2 - 16);
-            }
-
-            // CTA
-            ctx.fillStyle = template.textColor || '#202124';
-            ctx.font = template.ctaFont || 'bold 50px Arial, sans-serif';
-            ctx.fillText('Scan to leave a review', W / 2, H - 150);
+    function resolveCoord (value, total) {
+        if (typeof value === 'string' && value.indexOf('%') !== -1) {
+            return (parseFloat(value) / 100) * total;
         }
-    };
+        if (typeof value === 'number' && value < 0) {
+            return total + value;
+        }
+        return value || 0;
+    }
+
+    function resolveSize (value, total) {
+        if (typeof value === 'string' && value.indexOf('%') !== -1) {
+            return (parseFloat(value) / 100) * total;
+        }
+        return value || 0;
+    }
+
+    function applyTextStyle (ctx, el) {
+        ctx.fillStyle    = el.fill || '#000000';
+        ctx.font         = el.font || '24px sans-serif';
+        ctx.textAlign    = el.align || 'left';
+        ctx.textBaseline = el.baseline || 'top';
+    }
+
+    function drawTextBlock (ctx, text, x, y, el) {
+        applyTextStyle(ctx, el);
+
+        var lineHeight = el.lineHeight || (parseFloat(el.font) || 24) * 1.2;
+        var lines;
+        if (el.maxWidth) {
+            lines = wrapText(ctx, text, el.maxWidth);
+        } else {
+            lines = String(text || '').split(/\r?\n/);
+        }
+        var max = el.maxLines || lines.length;
+        for (var i = 0; i < Math.min(lines.length, max); i++) {
+            ctx.fillText(lines[i], x, y + i * lineHeight);
+        }
+    }
+
+    function drawQrElement (ctx, x, y, el, data) {
+        var size = el.size || 640;
+        var pad  = el.framePadding || 0;
+        var anchor = el.anchor || 'topLeft';
+
+        var qrX = x;
+        var qrY = y;
+        if (anchor === 'center') {
+            qrX = x - size / 2;
+            qrY = y - size / 2;
+        } else if (anchor === 'topCenter') {
+            qrX = x - size / 2;
+        } else if (anchor === 'centerLeft') {
+            qrY = y - size / 2;
+        }
+
+        // Plate background
+        if (el.plate !== false) {
+            ctx.fillStyle = el.plate || '#ffffff';
+            ctx.fillRect(qrX - pad, qrY - pad, size + pad * 2, size + pad * 2);
+        }
+
+        // Optional accent frame
+        if (el.frame) {
+            ctx.strokeStyle = el.frameColor || '#000000';
+            ctx.lineWidth   = el.frameWidth || 8;
+            ctx.strokeRect(qrX - pad, qrY - pad, size + pad * 2, size + pad * 2);
+        }
+
+        if (data.qrImage) {
+            ctx.drawImage(data.qrImage, qrX, qrY, size, size);
+        } else {
+            ctx.fillStyle = '#e2e8f0';
+            ctx.fillRect(qrX, qrY, size, size);
+            ctx.fillStyle    = '#94a3b8';
+            ctx.font         = '500 32px Arial, sans-serif';
+            ctx.textAlign    = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('QR loading...', qrX + size / 2, qrY + size / 2);
+        }
+    }
+
+    /**
+     * Element renderer. Each template's `elements` array is iterated in
+     * order; new element types can be added here without touching templates.
+     */
+    function renderElement (ctx, el, W, H, data) {
+        if (!el || !el.type) { return; }
+
+        var x = resolveCoord(el.x, W);
+        var y = resolveCoord(el.y, H);
+
+        switch (el.type) {
+            case 'rect':
+                ctx.fillStyle = el.fill || '#000000';
+                ctx.fillRect(
+                    x,
+                    y,
+                    resolveSize(el.w, W),
+                    resolveSize(el.h, H)
+                );
+                break;
+
+            case 'text':
+                drawTextBlock(ctx, el.content || '', x, y, el);
+                break;
+
+            case 'stars':
+                var count = el.count || 5;
+                var stars = '';
+                for (var i = 0; i < count; i++) { stars += '\u2605'; }
+                drawTextBlock(ctx, stars, x, y, el);
+                break;
+
+            case 'business':
+                drawTextBlock(ctx, data.business || '\u00a0', x, y, el);
+                break;
+
+            case 'bannerText':
+                drawTextBlock(ctx, data.bannerText || '', x, y, el);
+                break;
+
+            case 'qr':
+                drawQrElement(ctx, x, y, el, data);
+                break;
+        }
+    }
+
+    /**
+     * Find the largest QR size declared in a template, so we fetch one
+     * image big enough for every QR element. Defaults to 640.
+     */
+    function getQrFetchSize (template) {
+        var max = 0;
+        var els = template.elements || [];
+        for (var i = 0; i < els.length; i++) {
+            if (els[i].type === 'qr') {
+                max = Math.max(max, els[i].size || 640);
+            }
+        }
+        return max || 640;
+    }
 
     function renderBanner (canvas, data, template) {
         var ctx = canvas.getContext('2d');
-        var draw = layouts[template.layout] || layouts.centered;
-        draw(ctx, canvas.width, canvas.height, data, template);
+
+        // Optional canvas size override per template.
+        if (template.canvas && (template.canvas.w || template.canvas.h)) {
+            var w = template.canvas.w || canvas.width;
+            var h = template.canvas.h || canvas.height;
+            if (canvas.width !== w)  { canvas.width  = w; }
+            if (canvas.height !== h) { canvas.height = h; }
+        }
+
+        var W = canvas.width;
+        var H = canvas.height;
+
+        // Background
+        ctx.fillStyle = template.background || '#ffffff';
+        ctx.fillRect(0, 0, W, H);
+
+        // Render elements in declared order
+        var elements = template.elements || [];
+        for (var i = 0; i < elements.length; i++) {
+            renderElement(ctx, elements[i], W, H, data);
+        }
     }
 
     function setStep (state, step) {
@@ -273,7 +362,7 @@
         }
 
         if (statusEl) statusEl.textContent = '...';
-        var qrSize = template.qrSize || 640;
+        var qrSize = getQrFetchSize(template);
         var requestId = ++state.requestId;
 
         loadQrImage(data.reviewUrl, qrSize).then(function (qrImage) {
