@@ -61,10 +61,11 @@ add_action( 'init', 'ggl_review_card_register_assets' );
 /**
  * Discover templates by scanning `templates/style_*.html`.
  *
- * Each template file is HTML-like markup parsed into the element list the
- * canvas renderer understands. To add a new layout, copy
- * `templates/style_1.html` to `templates/style_2.html` (or any other
- * `style_*.html` filename) - no PHP wiring required.
+ * Each template is a full HTML document (with its own <head>, <style>
+ * and <body>) that gets rendered inside an iframe on the front-end.
+ * To add a new layout, copy `templates/style_1.html` to
+ * `templates/style_2.html` (or any other `style_*.html` filename) and
+ * edit the HTML/CSS.
  *
  * Filter `ggl_review_card_templates` to add/remove templates programmatically.
  */
@@ -99,10 +100,12 @@ function ggl_review_card_get_templates() {
 }
 
 /**
- * Parse one HTML-like template file into the element array consumed by the
- * canvas renderer in assets/js/ggl-review-card.js.
+ * Read one HTML template file. Metadata (id, name, canvas size, picker
+ * swatch colours) comes from <meta name="..." content="..."> tags in
+ * the <head>. The raw HTML body is passed through to the JS side as-is
+ * and rendered inside an iframe after placeholder substitution.
  *
- * Returns null if the file is missing, malformed, or has no `id`/`name`.
+ * Returns null if the file is unreadable or empty.
  */
 function ggl_review_card_load_template_file( $file ) {
     $content = file_get_contents( $file );
@@ -110,144 +113,51 @@ function ggl_review_card_load_template_file( $file ) {
         return null;
     }
 
-    // DOMDocument::loadXML defaults to ISO-8859-1 without an XML prolog,
-    // so prepend one if the author didn't include it.
-    if ( false === strpos( $content, '<?xml' ) ) {
-        $content = '<?xml version="1.0" encoding="UTF-8"?>' . "\n" . $content;
-    }
+    $default_id = preg_replace( '/[^a-z0-9_-]/i', '', basename( $file, '.html' ) );
 
-    $previous = libxml_use_internal_errors( true );
-    $doc      = new DOMDocument();
-    $loaded   = $doc->loadXML( $content );
-    libxml_clear_errors();
-    libxml_use_internal_errors( $previous );
-
-    if ( ! $loaded || ! $doc->documentElement || 'template' !== $doc->documentElement->nodeName ) {
-        return null;
-    }
-
-    $root = $doc->documentElement;
-
-    $template = array(
-        'id'         => $root->getAttribute( 'id' ),
-        'name'       => $root->getAttribute( 'name' ),
-        'background' => $root->getAttribute( 'background' ) ?: '#ffffff',
-        'accent'     => $root->getAttribute( 'accent' ) ?: '#4285F4',
-        'textColor'  => $root->getAttribute( 'text-color' ) ?: '#202124',
-        'elements'   => array(),
+    $meta = array(
+        'template-id'       => $default_id,
+        'template-name'     => ucwords( str_replace( array( '_', '-' ), ' ', $default_id ) ),
+        'canvas-width'      => '1240',
+        'canvas-height'     => '1754',
+        'swatch-background' => '#ffffff',
+        'swatch-accent'     => '#4285F4',
+        'swatch-text'       => '#202124',
     );
 
-    if ( empty( $template['id'] ) || empty( $template['name'] ) ) {
-        return null;
-    }
-
-    $cw = $root->getAttribute( 'canvas-width' );
-    $ch = $root->getAttribute( 'canvas-height' );
-    if ( $cw || $ch ) {
-        $template['canvas'] = array();
-        if ( $cw ) {
-            $template['canvas']['w'] = (int) $cw;
-        }
-        if ( $ch ) {
-            $template['canvas']['h'] = (int) $ch;
+    // Grab every <meta name="..." content="..."> tag. Allow either
+    // attribute order so authors can write whichever feels natural.
+    if ( preg_match_all(
+        '/<meta\b[^>]*\bname=["\']([^"\']+)["\'][^>]*\bcontent=["\']([^"\']*)["\']/i',
+        $content,
+        $matches,
+        PREG_SET_ORDER
+    ) ) {
+        foreach ( $matches as $m ) {
+            $meta[ strtolower( $m[1] ) ] = $m[2];
         }
     }
-
-    foreach ( $root->childNodes as $child ) {
-        if ( XML_ELEMENT_NODE !== $child->nodeType ) {
-            continue;
-        }
-        $element = ggl_review_card_parse_element_node( $child );
-        if ( $element ) {
-            $template['elements'][] = $element;
+    if ( preg_match_all(
+        '/<meta\b[^>]*\bcontent=["\']([^"\']*)["\'][^>]*\bname=["\']([^"\']+)["\']/i',
+        $content,
+        $matches,
+        PREG_SET_ORDER
+    ) ) {
+        foreach ( $matches as $m ) {
+            $meta[ strtolower( $m[2] ) ] = $m[1];
         }
     }
 
-    return $template;
-}
-
-/**
- * Convert one DOMElement (e.g. <rect> or <text>...</text>) into the
- * associative element used by the JS renderer.
- */
-function ggl_review_card_parse_element_node( DOMNode $node ) {
-    $type_map = array(
-        'rect'        => 'rect',
-        'text'        => 'text',
-        'stars'       => 'stars',
-        'business'    => 'business',
-        'banner-text' => 'bannerText',
-        'qr'          => 'qr',
+    return array(
+        'id'         => $meta['template-id'],
+        'name'       => $meta['template-name'],
+        'background' => $meta['swatch-background'],
+        'accent'     => $meta['swatch-accent'],
+        'textColor'  => $meta['swatch-text'],
+        'width'      => max( 100, (int) $meta['canvas-width'] ),
+        'height'     => max( 100, (int) $meta['canvas-height'] ),
+        'html'       => $content,
     );
-
-    $tag = $node->nodeName;
-    if ( ! isset( $type_map[ $tag ] ) ) {
-        return null;
-    }
-
-    $element = array( 'type' => $type_map[ $tag ] );
-
-    if ( $node->hasAttributes() ) {
-        foreach ( $node->attributes as $attr ) {
-            $key             = ggl_review_card_camel_case( $attr->nodeName );
-            $element[ $key ] = ggl_review_card_coerce_attr_value( $attr->nodeValue );
-        }
-    }
-
-    // Allow inline body text on text-bearing elements (e.g. <text>Hello</text>).
-    if ( in_array( $tag, array( 'text', 'business', 'banner-text' ), true ) ) {
-        $body = trim( $node->textContent );
-        if ( '' !== $body ) {
-            $element['content'] = $body;
-        }
-    }
-
-    return $element;
-}
-
-/**
- * Convert kebab-case attribute names (e.g. `max-width`) to the camelCase
- * keys the JS renderer expects (`maxWidth`).
- */
-function ggl_review_card_camel_case( $input ) {
-    return preg_replace_callback(
-        '/-([a-z])/',
-        function ( $m ) {
-            return strtoupper( $m[1] );
-        },
-        $input
-    );
-}
-
-/**
- * Coerce raw XML attribute strings to PHP scalars the renderer can use:
- *  - "true"/"false" -> bool
- *  - "" -> true (for boolean toggles)
- *  - "50%" -> string (kept as-is for the JS coordinate resolver)
- *  - "-150" / "640" -> int
- *  - "1.5" -> float
- *  - everything else -> string
- */
-function ggl_review_card_coerce_attr_value( $value ) {
-    if ( '' === $value ) {
-        return true;
-    }
-    if ( 'true' === $value ) {
-        return true;
-    }
-    if ( 'false' === $value ) {
-        return false;
-    }
-    if ( '%' === substr( $value, -1 ) ) {
-        return $value;
-    }
-    if ( preg_match( '/^-?\d+$/', $value ) ) {
-        return (int) $value;
-    }
-    if ( preg_match( '/^-?\d+\.\d+$/', $value ) ) {
-        return (float) $value;
-    }
-    return $value;
 }
 
 /**
@@ -317,11 +227,11 @@ function ggl_review_card_shortcode( $atts ) {
             </fieldset>
 
             <fieldset class="ggl-rc__step" data-step="4">
-                <legend><?php esc_html_e( 'Your A5 banner', 'ggl-review-card' ); ?></legend>
-                <p class="ggl-rc__hint"><?php esc_html_e( 'The preview on the right updates live as you edit. Use the button below to download the high-resolution PNG.', 'ggl-review-card' ); ?></p>
-                <a class="ggl-rc__download ggl-rc__btn ggl-rc__btn--primary" href="#" download="google-review-banner-a5.png" hidden>
-                    <?php esc_html_e( 'Download A5 image', 'ggl-review-card' ); ?>
-                </a>
+                <legend><?php esc_html_e( 'Your review banner', 'ggl-review-card' ); ?></legend>
+                <p class="ggl-rc__hint"><?php esc_html_e( 'The preview on the right updates live as you edit. Click the button below to render and download a high-resolution PNG.', 'ggl-review-card' ); ?></p>
+                <button type="button" class="ggl-rc__btn ggl-rc__btn--primary" data-action="download">
+                    <?php esc_html_e( 'Download PNG', 'ggl-review-card' ); ?>
+                </button>
             </fieldset>
 
             <div class="ggl-rc__nav">
@@ -336,8 +246,8 @@ function ggl_review_card_shortcode( $atts ) {
 
         <aside class="ggl-rc__live-preview" data-live-preview hidden aria-live="polite">
             <h3 class="ggl-rc__live-preview-title"><?php esc_html_e( 'Live preview', 'ggl-review-card' ); ?></h3>
-            <div class="ggl-rc__preview">
-                <canvas data-ggl-canvas width="1240" height="1754" aria-label="<?php esc_attr_e( 'A5 review banner preview', 'ggl-review-card' ); ?>"></canvas>
+            <div class="ggl-rc__iframe-wrap" data-iframe-wrap>
+                <iframe data-ggl-iframe title="<?php esc_attr_e( 'Review banner preview', 'ggl-review-card' ); ?>" sandbox="allow-same-origin"></iframe>
             </div>
             <p class="ggl-rc__preview-status" data-preview-status></p>
         </aside>
